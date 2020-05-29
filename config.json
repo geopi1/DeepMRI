@@ -1,0 +1,43 @@
+{
+   "working_dir_base":"./results",
+   "tag":"tag",
+   "acceleration_rate":2,
+   "network":{
+      "type":"base",
+	  "work_with_crop":"False",
+	  "crop_size": 32,
+      "input_channels":15,
+      "num_epochs":500,
+      "num_iter_per_epoch":640,
+      "batch_size":64,
+      "save_every":100,
+      "loss":{
+         "name":"MSE",
+         "params":{
+
+         }
+      },
+      "optimization":{
+         "name":"Adam",
+         "params":{
+            "lr":0.0001
+         }
+      },
+      "lr_sched":{
+         "name":"StepLR",
+         "params":{
+            "gamma":0.5,
+            "step_size":0.3,
+            "milestones":[
+               4000,
+               6000,
+               7500,
+               7900
+            ]
+         }
+      }
+   },
+   "data":{
+      "data_folder":"/media/george/storge/DeepMRI_data/"
+   }
+}

@@ -1,0 +1,285 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ismrmrdtools.simulation &#8212; ISMRMRD Python Tools 0.2 documentation</title>
+    <link rel="stylesheet" href="../../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/language_data.js"></script>
+    
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ISMRMRD Python Tools 0.2 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for ismrmrdtools.simulation</h1><div class="highlight"><pre>
+<span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Tools for generating coil sensitivities and phantoms</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">ismrmrdtools</span> <span class="kn">import</span> <span class="n">transform</span>
+
+<span class="k">def</span> <span class="nf">sample_data</span><span class="p">(</span><span class="n">img_obj</span><span class="p">,</span> <span class="n">csm</span><span class="p">,</span> <span class="n">acc</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">ref</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">sshift</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+<span class="c1">#%  Samples the k-space of object provided in &#39;img_obj&#39; after first applying</span>
+<span class="c1">#%  coil sensitivity maps in &#39;csm&#39; and Fourier transforming to k-space.</span>
+<span class="c1">#%</span>
+<span class="c1">#%  INPUT:</span>
+<span class="c1">#%    - img_obj [x,y]    : Object in image space</span>
+<span class="c1">#%    - csm     [x,y,c]  : Coil sensitivity maps</span>
+<span class="c1">#%    - acc     scalar   : Acceleration factor</span>
+<span class="c1">#%    - ref     scalar   : Reference lines (in center of k-space)</span>
+<span class="c1">#%    - sshift  scalar   : Sampling shift, i.e for undersampling, do we</span>
+<span class="c1">#%                         start with line 1 or line 1+sshift?</span>
+<span class="c1">#%</span>
+<span class="c1">#%  OUPUT:</span>
+<span class="c1">#%    - data    [kx,ky,c]: Sampled data in k-space (zeros where not sampled)</span>
+<span class="c1">#%    - pat     [kx,ky,c]: Sampling pattern (0 = not sampled,</span>
+<span class="c1">#%                                           1 = imaging data,</span>
+<span class="c1">#%                                           2 = reference data,</span>
+<span class="c1">#%                                           3 = reference and imaging data)</span>
+<span class="c1">#%</span>
+<span class="c1">#%</span>
+<span class="c1">#%   Code made available for the ISMRM 2013 Sunrise Educational Course</span>
+<span class="c1">#% </span>
+<span class="c1">#%   Michael S. Hansen (michael.hansen@nih.gov)</span>
+<span class="c1">#%</span>
+
+    <span class="n">sshift</span> <span class="o">=</span> <span class="n">sshift</span><span class="o">%</span><span class="n">acc</span><span class="p">;</span>
+    
+    <span class="k">assert</span> <span class="n">img_obj</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;Only two dimensional objects supported at the moment&quot;</span>
+    <span class="k">assert</span> <span class="n">csm</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;csm must be a 3 dimensional array&quot;</span>
+    <span class="k">assert</span> <span class="n">img_obj</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">csm</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="s2">&quot;Object and csm dimension mismatch&quot;</span>    
+    <span class="k">assert</span> <span class="n">img_obj</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">csm</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="s2">&quot;Object and csm dimension mismatch&quot;</span> 
+
+    <span class="n">pat_img</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">img_obj</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+    <span class="n">pat_img</span><span class="p">[</span><span class="n">sshift</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span><span class="n">acc</span><span class="p">,:]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">pat_ref</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">img_obj</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ref</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">:</span>
+        <span class="n">pat_ref</span><span class="p">[(</span><span class="mi">0</span><span class="o">+</span><span class="n">img_obj</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="mi">2</span><span class="p">):(</span><span class="n">ref</span><span class="o">+</span><span class="n">img_obj</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="mi">2</span><span class="p">),:]</span> <span class="o">=</span> <span class="mi">2</span>
+
+    <span class="n">pat</span> <span class="o">=</span> <span class="n">pat_img</span> <span class="o">+</span> <span class="n">pat_ref</span>
+    
+    <span class="n">coil_images</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">img_obj</span><span class="p">,(</span><span class="n">csm</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="o">*</span> <span class="n">csm</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">transform</span><span class="o">.</span><span class="n">transform_image_to_kspace</span><span class="p">(</span><span class="n">coil_images</span><span class="p">,</span><span class="n">dim</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">))</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span> <span class="o">*</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">pat</span><span class="p">,(</span><span class="n">csm</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;float32&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="n">pat</span><span class="p">)</span>
+
+<div class="viewcode-block" id="generate_birdcage_sensitivities"><a class="viewcode-back" href="../../api.html#ismrmrdtools.simulation.generate_birdcage_sensitivities">[docs]</a><span class="k">def</span> <span class="nf">generate_birdcage_sensitivities</span><span class="p">(</span><span class="n">matrix_size</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span> <span class="n">number_of_coils</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="n">relative_radius</span> <span class="o">=</span> <span class="mf">1.5</span><span class="p">,</span> <span class="n">normalize</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Generates birdcage coil sensitivites.</span>
+
+<span class="sd">    :param matrix_size: size of imaging matrix in pixels (default ``256``)</span>
+<span class="sd">    :param number_of_coils: Number of simulated coils (default ``8``)</span>
+<span class="sd">    :param relative_radius: Relative radius of birdcage (default ``1.5``)</span>
+
+<span class="sd">    This function is heavily inspired by the mri_birdcage.m Matlab script in</span>
+<span class="sd">    Jeff Fessler&#39;s IRT package: http://web.eecs.umich.edu/~fessler/code/</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">number_of_coils</span><span class="p">,</span><span class="n">matrix_size</span><span class="p">,</span><span class="n">matrix_size</span><span class="p">),</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex64</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">number_of_coils</span><span class="p">):</span>
+        <span class="n">coilx</span> <span class="o">=</span> <span class="n">relative_radius</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">c</span><span class="o">*</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="n">number_of_coils</span><span class="p">))</span>
+        <span class="n">coily</span> <span class="o">=</span> <span class="n">relative_radius</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">c</span><span class="o">*</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="n">number_of_coils</span><span class="p">))</span>
+        <span class="n">coil_phase</span> <span class="o">=</span> <span class="o">-</span><span class="n">c</span><span class="o">*</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="n">number_of_coils</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">matrix_size</span><span class="p">):</span>
+            <span class="n">y_co</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">y</span><span class="o">-</span><span class="n">matrix_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span><span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="n">matrix_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span><span class="o">-</span><span class="n">coily</span>
+            <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">matrix_size</span><span class="p">):</span>
+                <span class="n">x_co</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="o">-</span><span class="n">matrix_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span><span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="n">matrix_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span><span class="o">-</span><span class="n">coilx</span>
+                <span class="n">rr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x_co</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">y_co</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+                <span class="n">phi</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan2</span><span class="p">(</span><span class="n">x_co</span><span class="p">,</span> <span class="o">-</span><span class="n">y_co</span><span class="p">)</span> <span class="o">+</span> <span class="n">coil_phase</span>
+                <span class="n">out</span><span class="p">[</span><span class="n">c</span><span class="p">,</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span>  <span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="n">rr</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mi">1</span><span class="n">j</span><span class="o">*</span><span class="n">phi</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">normalize</span><span class="p">:</span>
+         <span class="n">rss</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">out</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
+         <span class="n">out</span> <span class="o">=</span> <span class="n">out</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">rss</span><span class="p">,(</span><span class="n">number_of_coils</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">out</span></div>
+
+
+<div class="viewcode-block" id="phantom"><a class="viewcode-back" href="../../api.html#ismrmrdtools.simulation.phantom">[docs]</a><span class="k">def</span> <span class="nf">phantom</span> <span class="p">(</span><span class="n">matrix_size</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span> <span class="n">phantom_type</span> <span class="o">=</span> <span class="s1">&#39;Modified Shepp-Logan&#39;</span><span class="p">,</span> <span class="n">ellipses</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create a Shepp-Logan or modified Shepp-Logan phantom::</span>
+
+<span class="sd">        phantom (n = 256, phantom_type = &#39;Modified Shepp-Logan&#39;, ellipses = None)</span>
+
+<span class="sd">    :param matrix_size: size of imaging matrix in pixels (default 256)</span>
+
+<span class="sd">    :param phantom_type: The type of phantom to produce.</span>
+<span class="sd">        Either &quot;Modified Shepp-Logan&quot; or &quot;Shepp-Logan&quot;. This is overridden</span>
+<span class="sd">        if ``ellipses`` is also specified.</span>
+
+<span class="sd">    :param ellipses: Custom set of ellipses to use.  These should be in</span>
+<span class="sd">        the form::</span>
+
+<span class="sd">            [[I, a, b, x0, y0, phi],</span>
+<span class="sd">            [I, a, b, x0, y0, phi],</span>
+<span class="sd">                            ...]</span>
+
+<span class="sd">        where each row defines an ellipse.</span>
+
+<span class="sd">        :I: Additive intensity of the ellipse.</span>
+<span class="sd">        :a: Length of the major axis.</span>
+<span class="sd">        :b: Length of the minor axis.</span>
+<span class="sd">        :x0: Horizontal offset of the centre of the ellipse.</span>
+<span class="sd">        :y0: Vertical offset of the centre of the ellipse.</span>
+<span class="sd">        :phi: Counterclockwise rotation of the ellipse in degrees,</span>
+<span class="sd">            measured as the angle between the horizontal axis and</span>
+<span class="sd">            the ellipse major axis.</span>
+
+<span class="sd">    The image bounding box in the algorithm is ``[-1, -1], [1, 1]``,</span>
+<span class="sd">    so the values of ``a``, ``b``, ``x0``, ``y0`` should all be specified with</span>
+<span class="sd">    respect to this box.</span>
+
+<span class="sd">    :returns: Phantom image</span>
+
+<span class="sd">    References:</span>
+
+<span class="sd">    Shepp, L. A.; Logan, B. F.; Reconstructing Interior Head Tissue</span>
+<span class="sd">    from X-Ray Transmissions, IEEE Transactions on Nuclear Science,</span>
+<span class="sd">    Feb. 1974, p. 232.</span>
+
+<span class="sd">    Toft, P.; &quot;The Radon Transform - Theory and Implementation&quot;,</span>
+<span class="sd">    Ph.D. thesis, Department of Mathematical Modelling, Technical</span>
+<span class="sd">    University of Denmark, June 1996.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">ellipses</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="n">ellipses</span> <span class="o">=</span> <span class="n">_select_phantom</span> <span class="p">(</span><span class="n">phantom_type</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">size</span> <span class="p">(</span><span class="n">ellipses</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">6</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">AssertionError</span> <span class="p">(</span><span class="s2">&quot;Wrong number of columns in user phantom&quot;</span><span class="p">)</span>
+
+    <span class="n">ph</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span> <span class="p">((</span><span class="n">matrix_size</span><span class="p">,</span> <span class="n">matrix_size</span><span class="p">),</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="c1"># Create the pixel grid</span>
+    <span class="n">ygrid</span><span class="p">,</span> <span class="n">xgrid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span><span class="mi">1</span><span class="p">:(</span><span class="mi">1</span><span class="n">j</span><span class="o">*</span><span class="n">matrix_size</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span><span class="mi">1</span><span class="p">:(</span><span class="mi">1</span><span class="n">j</span><span class="o">*</span><span class="n">matrix_size</span><span class="p">)]</span>
+
+    <span class="k">for</span> <span class="n">ellip</span> <span class="ow">in</span> <span class="n">ellipses</span><span class="p">:</span>
+        <span class="n">I</span>   <span class="o">=</span> <span class="n">ellip</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">a2</span>  <span class="o">=</span> <span class="n">ellip</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span>
+        <span class="n">b2</span>  <span class="o">=</span> <span class="n">ellip</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span>
+        <span class="n">x0</span>  <span class="o">=</span> <span class="n">ellip</span> <span class="p">[</span><span class="mi">3</span><span class="p">]</span>
+        <span class="n">y0</span>  <span class="o">=</span> <span class="n">ellip</span> <span class="p">[</span><span class="mi">4</span><span class="p">]</span>
+        <span class="n">phi</span> <span class="o">=</span> <span class="n">ellip</span> <span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mi">180</span>  <span class="c1"># Rotation angle in radians</span>
+
+        <span class="c1"># Create the offset x and y values for the grid</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">xgrid</span> <span class="o">-</span> <span class="n">x0</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">ygrid</span> <span class="o">-</span> <span class="n">y0</span>
+
+        <span class="n">cos_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span> <span class="p">(</span><span class="n">phi</span><span class="p">)</span>
+        <span class="n">sin_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span> <span class="p">(</span><span class="n">phi</span><span class="p">)</span>
+
+        <span class="c1"># Find the pixels within the ellipse</span>
+        <span class="n">locs</span> <span class="o">=</span> <span class="p">(((</span><span class="n">x</span> <span class="o">*</span> <span class="n">cos_p</span> <span class="o">+</span> <span class="n">y</span> <span class="o">*</span> <span class="n">sin_p</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="n">a2</span>
+        <span class="o">+</span> <span class="p">((</span><span class="n">y</span> <span class="o">*</span> <span class="n">cos_p</span> <span class="o">-</span> <span class="n">x</span> <span class="o">*</span> <span class="n">sin_p</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="n">b2</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span>
+
+        <span class="c1"># Add the ellipse intensity to those pixels</span>
+        <span class="n">ph</span> <span class="p">[</span><span class="n">locs</span><span class="p">]</span> <span class="o">+=</span> <span class="n">I</span>
+
+    <span class="k">return</span> <span class="n">ph</span></div>
+
+<span class="k">def</span> <span class="nf">_select_phantom</span> <span class="p">(</span><span class="n">name</span><span class="p">):</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span> <span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;shepp-logan&#39;</span><span class="p">):</span>
+        <span class="n">e</span> <span class="o">=</span> <span class="n">_shepp_logan</span> <span class="p">()</span>
+    <span class="k">elif</span> <span class="p">(</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span> <span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;modified shepp-logan&#39;</span><span class="p">):</span>
+        <span class="n">e</span> <span class="o">=</span> <span class="n">_mod_shepp_logan</span> <span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span> <span class="p">(</span><span class="s2">&quot;Unknown phantom type: </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">e</span>
+
+<span class="k">def</span> <span class="nf">_shepp_logan</span> <span class="p">():</span>
+    <span class="c1">#  Standard head phantom, taken from Shepp &amp; Logan</span>
+    <span class="k">return</span> <span class="p">[[</span>   <span class="mi">2</span><span class="p">,</span>   <span class="o">.</span><span class="mi">69</span><span class="p">,</span>   <span class="o">.</span><span class="mi">92</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span><span class="o">-.</span><span class="mi">98</span><span class="p">,</span> <span class="o">.</span><span class="mi">6624</span><span class="p">,</span> <span class="o">.</span><span class="mi">8740</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span> <span class="o">-.</span><span class="mi">0184</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span><span class="o">-.</span><span class="mi">02</span><span class="p">,</span> <span class="o">.</span><span class="mi">1100</span><span class="p">,</span> <span class="o">.</span><span class="mi">3100</span><span class="p">,</span>  <span class="o">.</span><span class="mi">22</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">18</span><span class="p">],</span>
+            <span class="p">[</span><span class="o">-.</span><span class="mi">02</span><span class="p">,</span> <span class="o">.</span><span class="mi">1600</span><span class="p">,</span> <span class="o">.</span><span class="mi">4100</span><span class="p">,</span> <span class="o">-.</span><span class="mi">22</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span>  <span class="mi">18</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">01</span><span class="p">,</span> <span class="o">.</span><span class="mi">2100</span><span class="p">,</span> <span class="o">.</span><span class="mi">2500</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>    <span class="o">.</span><span class="mi">35</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">01</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>     <span class="o">.</span><span class="mi">1</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">02</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>    <span class="o">-.</span><span class="mi">1</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">01</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span> <span class="o">-.</span><span class="mi">08</span><span class="p">,</span>  <span class="o">-.</span><span class="mi">605</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">01</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>  <span class="o">-.</span><span class="mi">606</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">01</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span>  <span class="o">.</span><span class="mi">06</span><span class="p">,</span>  <span class="o">-.</span><span class="mi">605</span><span class="p">,</span>   <span class="mi">0</span><span class="p">]]</span>
+
+<span class="k">def</span> <span class="nf">_mod_shepp_logan</span> <span class="p">():</span>
+    <span class="c1">#  Modified version of Shepp &amp; Logan&#39;s head phantom,</span>
+    <span class="c1">#  adjusted to improve contrast.  Taken from Toft.</span>
+    <span class="k">return</span> <span class="p">[[</span>   <span class="mi">1</span><span class="p">,</span>   <span class="o">.</span><span class="mi">69</span><span class="p">,</span>   <span class="o">.</span><span class="mi">92</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span><span class="o">-.</span><span class="mi">80</span><span class="p">,</span> <span class="o">.</span><span class="mi">6624</span><span class="p">,</span> <span class="o">.</span><span class="mi">8740</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span> <span class="o">-.</span><span class="mi">0184</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span><span class="o">-.</span><span class="mi">20</span><span class="p">,</span> <span class="o">.</span><span class="mi">1100</span><span class="p">,</span> <span class="o">.</span><span class="mi">3100</span><span class="p">,</span>  <span class="o">.</span><span class="mi">22</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">18</span><span class="p">],</span>
+            <span class="p">[</span><span class="o">-.</span><span class="mi">20</span><span class="p">,</span> <span class="o">.</span><span class="mi">1600</span><span class="p">,</span> <span class="o">.</span><span class="mi">4100</span><span class="p">,</span> <span class="o">-.</span><span class="mi">22</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span>  <span class="mi">18</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">10</span><span class="p">,</span> <span class="o">.</span><span class="mi">2100</span><span class="p">,</span> <span class="o">.</span><span class="mi">2500</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>    <span class="o">.</span><span class="mi">35</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">10</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>     <span class="o">.</span><span class="mi">1</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">10</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>    <span class="o">-.</span><span class="mi">1</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">10</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span> <span class="o">-.</span><span class="mi">08</span><span class="p">,</span>  <span class="o">-.</span><span class="mi">605</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">10</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span>    <span class="mi">0</span><span class="p">,</span>  <span class="o">-.</span><span class="mi">606</span><span class="p">,</span>   <span class="mi">0</span><span class="p">],</span>
+            <span class="p">[</span> <span class="o">.</span><span class="mi">10</span><span class="p">,</span> <span class="o">.</span><span class="mi">0230</span><span class="p">,</span> <span class="o">.</span><span class="mi">0460</span><span class="p">,</span>  <span class="o">.</span><span class="mi">06</span><span class="p">,</span>  <span class="o">-.</span><span class="mi">605</span><span class="p">,</span>   <span class="mi">0</span><span class="p">]]</span>
+
+<span class="c1">#def ?? ():</span>
+<span class="c1">## Add any further phantoms of interest here</span>
+<span class="c1">#   return np.array (</span>
+<span class="c1">#       [[ 0, 0, 0, 0, 0, 0],</span>
+<span class="c1">#       [ 0, 0, 0, 0, 0, 0]])</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ISMRMRD Python Tools 0.2 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2015, ISMRMRD Developers.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 3.0.3.
+    </div>
+  </body>
+</html>
