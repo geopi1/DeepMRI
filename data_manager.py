@@ -9,9 +9,11 @@ import ismrmrd.xsd
 from tqdm import tqdm
 import pickle
 
+
 class DataHandler(data.Dataset):
     """
     This is a torch class to handle:
+    subsampled data always stored as [real,imag, real,imag, ...]
     1. loading MR images
     2. cropping
     3. batching
@@ -23,10 +25,13 @@ class DataHandler(data.Dataset):
         self.data_path = config['data']['data_folder']
         self.data = self.load_mr_images()
         self.sub_rate = self.config['acceleration_rate']
-        self.ACS, self.elements_to_leave, self.elements_to_remove, self.subsampled_data = self.create_subsmapled_data()
+        self.ACS_size = 60
+        self.ACS = self.get_ACS()
+        self.subsampled_data = self.create_subsmapled_data()
+        print('-datahandler built-')
 
     def __len__(self):
-        return self.data.shape
+        return self.data.shape[0]
 
     def __getitem__(self, item):
         """
@@ -34,15 +39,20 @@ class DataHandler(data.Dataset):
         :param item:
         :return:
         """
+        # here we get a crop that is concatenated in the channels dimension
+        # [real, imag] - so the first half is real second is imaginary - for reconstruction
         hr_crop = self.get_random_crop()
-        lr_crop = self.subsample_crop(hr_crop)
-        return hr_crop, lr_crop
+
+        # gt_crop is prepared for the network we store the all the subsampling in the channel dimension
+        # lr_crop is only every Nth row - that we need to feed through the network
+        gt_crop, lr_crop = self.subsample_crop(hr_crop)
+        return gt_crop, lr_crop
 
     def load_mr_images(self):
         # iterate over the path list load and save the data
         file_list = sorted([f for f in os.listdir(self.data_path) if f.endswith('pickle')])
         data = []
-        for ind, path in enumerate(file_list[:3]):
+        for ind, path in enumerate([file_list[1]]):
             if ind == 0:
                 with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
                     data = np.squeeze(pickle.load(handle))
@@ -52,51 +62,47 @@ class DataHandler(data.Dataset):
 
                 data = np.concatenate([data, tmp_data], axis=0)
 
-        return data
+        return data[:, :, :768, :]/np.std(data[:, :, :768, :])
+
+    def get_ACS(self):
+        ACS = list(np.arange(-self.ACS_size // 2, self.ACS_size // 2) + 308)
+        return self.data[:, :, ACS[:], :]
 
     def create_subsmapled_data(self):
-        fully_sampled_area_size = self.data.shape[2]//8
-        sub_rate = self.sub_rate
-        sub_data = np.copy(self.data)
-        ACS = list(np.arange(-fully_sampled_area_size//2, fully_sampled_area_size//2) + 308)
-        # elements_to_leave = []
-        elements_to_remove = list(range(0, self.data.shape[2]))
-        elements_to_leave = list(range(0, self.data.shape[2], sub_rate))
+        real_img_data = np.concatenate([np.real(self.data), np.imag(self.data)], axis=1)
+        sub_data = np.zeros([real_img_data.shape[0], real_img_data.shape[1]*self.sub_rate,
+                             real_img_data.shape[2]//self.sub_rate, real_img_data.shape[3]], dtype=real_img_data.dtype)
 
-        for f in elements_to_remove:
-            if f in ACS or f in elements_to_leave:
-                continue
-            else:
-                elements_to_remove.remove(f)
+        # the channels are arranged [frames, [channels r(mod0), channels r(mod1), ...], y,x]
+        # if R=2 [frames, [channels even_rows, channels odd, ...], y,x]
+        for i in range(real_img_data.shape[-2]):
+            sub_data[:, real_img_data.shape[1]*(i%self.sub_rate):real_img_data.shape[1]*(i%self.sub_rate+1), i//self.sub_rate, :] = real_img_data[:, :, i, :]
 
-        for i in elements_to_remove:
-            sub_data[:, :, i, :] = np.zeros(np.shape(sub_data[:, :, 0, :]), dtype=sub_data.dtype)
-        return ACS, elements_to_leave, elements_to_remove, sub_data
+        return sub_data
 
-    def subsample_crop(self, hr_crop):
+    def subsample_crop(self, hr_crop, test=False):
         """
-        take hr_crop and replace each N-th row with zeros (subsampled and padded)
+
         :param hr_crop: [2*channels, height, width]
         :return: zero-padded subsampled crop
         """
-        lr_crop = np.copy(hr_crop)
-        for i in range(0, hr_crop.shape[1], self.sub_rate):
-            lr_crop[:, i, :] = np.zeros(np.shape(lr_crop[:, i, :]), dtype=lr_crop.dtype)
-        return lr_crop
+        gt_crop = np.zeros([hr_crop.shape[0]*self.sub_rate, hr_crop.shape[1]//self.sub_rate, hr_crop.shape[2]], dtype=hr_crop.dtype)
+
+        for i in range(hr_crop.shape[-2]):
+            start_ind = hr_crop.shape[0]*(i%self.sub_rate)
+            end_ind = start_ind + hr_crop.shape[0]
+            gt_crop[start_ind:end_ind, i//self.sub_rate, :] = hr_crop[:, i, :]
+
+        lr_crop = gt_crop[:hr_crop.shape[0], :, :]
+        return gt_crop,lr_crop
 
     def get_random_crop(self):
         if self.work_with_crop:
-            frame = np.random.randint(0, self.data.shape[0], 1)
-            row = np.random.randint(self.ACS[0], self.ACS[-1] - self.crop_size, 1)
-            col = np.random.randint(0, self.data.shape[0] - self.crop_size, 1)
-            real_part = np.real(np.squeeze(self.subsampled_data[frame, :, row, col]))
-            imag_part = np.squeeze(np.imag(self.subsampled_data[frame, :, row, col]))
-            crop = np.concatenate([real_part, imag_part], axis=0)
-            return crop
+            return
         # not working with crops, but with the full k-space ACS
         else:
             frame = np.random.randint(0, self.data.shape[0], 1)
-            real_part = np.real(np.squeeze(self.subsampled_data[frame, :, self.ACS[0]:self.ACS[-1], :]))
-            imag_part = np.squeeze(np.imag(self.subsampled_data[frame, :, self.ACS[0]:self.ACS[-1], :]))
+            real_part = np.real(np.squeeze(self.ACS[frame, :, :, :]))
+            imag_part = np.imag(np.squeeze(self.ACS[frame, :, :, :]))
             crop = np.concatenate([real_part, imag_part], axis=0)
             return crop

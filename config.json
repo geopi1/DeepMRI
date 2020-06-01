@@ -4,12 +4,12 @@
    "acceleration_rate":2,
    "network":{
       "type":"base",
-	  "work_with_crop":"False",
+	  "work_with_crop": false,
 	  "crop_size": 32,
       "input_channels":15,
-      "num_epochs":500,
-      "num_iter_per_epoch":640,
-      "batch_size":64,
+      "num_epochs":200,
+      "num_iter_per_epoch":15,
+      "batch_size":45,
       "save_every":100,
       "loss":{
          "name":"MSE",
@@ -20,7 +20,7 @@
       "optimization":{
          "name":"Adam",
          "params":{
-            "lr":0.0001
+            "lr":0.01
          }
       },
       "lr_sched":{
@@ -29,10 +29,9 @@
             "gamma":0.5,
             "step_size":0.3,
             "milestones":[
-               4000,
-               6000,
-               7500,
-               7900
+               150,
+               400,
+               450
             ]
          }
       }

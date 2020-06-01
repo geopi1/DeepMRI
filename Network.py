@@ -6,6 +6,7 @@ import torch.optim.optimizer
 from torch.optim import lr_scheduler
 import math
 import time
+import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -26,24 +27,26 @@ class Network:  # The base network
         self.loss_fn = self.define_loss()
         self.writer = SummaryWriter(os.path.join(config['working_dir'], 'logs_dir'))
         self.scheduler = self.define_lr_sched()
+        print('-net built-')
 
     def build_network(self):  # BASE version. Other modes override this function
         net = nn.Sequential(
-            nn.Conv2d(in_channels=2*self.channels_in, out_channels=32, kernel_size=[5, 2], padding=[3, 1], padding_mode='reflect'),
+            nn.Conv2d(in_channels=2*self.channels_in, out_channels=128, kernel_size=[5, 5], padding=[3, 3], padding_mode='reflect'),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=8, kernel_size=[1, 1]),
+            nn.Conv2d(in_channels=128, out_channels=64, kernel_size=[1, 1]),
             nn.ReLU(),
-            nn.Conv2d(in_channels=8, out_channels=self.R-1, kernel_size=[3, 2], padding=[1, 1], padding_mode='reflect'),
+            nn.Conv2d(in_channels=64, out_channels=self.R*2*self.channels_in, kernel_size=[3, 3]),
         ).to(self.device)
         return net
 
     def define_loss(self):
-        return torch.nn.MSELoss(reduction='sum')
+        # return torch.nn.MSELoss(reduction='sum')
+        return torch.nn.L1Loss(reduction='sum')
 
     def define_opt(self):
         # TODO: read the lr and momentum from config
         learning_rate = self.config['network']['optimization']['params']['lr']
-        return torch.optim.Adam(self.net.parameters(), lr=learning_rate)
+        return torch.optim.Adam(self.net.parameters(), lr=learning_rate, weight_decay=0.01)
 
     def define_lr_sched(self):
         gamma = self.config['network']['lr_sched']['params']['gamma']
@@ -66,49 +69,47 @@ class Network:  # The base network
         return self.loss_fn(output, hr_gt_torch).cuda()
 
     def train(self, data_loader_object):
+        print('-starting training-')
         # epochs
-        epochs = self.config['lr_sched']['params']['epochs']
+        epochs = self.config['network']['num_epochs']
         for e in range(epochs):
             t = time.time()
             self.optimizer.zero_grad()
-            if e % self.config['save_every'] == self.config['save_every'] - 1:
+            if e % self.config['network']['save_every'] == self.config['network']['save_every'] - 1:
                 print(f'saved model at epoch {e}')
                 self.save_model(epoch=e, overwrite=False)
 
             # iterations per epochs
             it = 0
             for (hr_gt, lr) in data_loader_object:
-                print(f'iter: {it}')
-
                 hr_prediction = self.forward(lr.to(self.device))
-
                 loss = self.calc_loss(hr_prediction.to(self.device), hr_gt.to(self.device))
-
                 loss.backward()
                 it += 1
-            print(f'epoch:{e}, loss:{loss.item():.2f}. Time: {(time.time()-t):.2f}, lr={self.optimizer.param_groups[0]["lr"]}')
+            print(f'epoch:{e}, loss:{loss.item()}. Time: {(time.time()-t):.2f}, lr={self.optimizer.param_groups[0]["lr"]}')
             # TODO: check about updating after ALL iterations in epoch
             self.optimizer.step()
-            self.scheduler.step(epoch=e)
+            self.scheduler.step()
             self.writer.add_scalars('loss', {'loss': loss.item()})
             self.writer.add_scalars('lr', {'lr': self.optimizer.param_groups[0]["lr"]})
 
-
-            # TODO: register training loss
-
-            # TODO: print results (all the frames of the upscaled video) every N epochs
 
         self.writer.close()
         return
 
     def eval(self, data):
+        #                       frames       channels(rea/imag)     y (full size)           x
+        hr_tensor = np.zeros([data.shape[0], data.shape[1]//2, self.R*data.shape[2], data.shape[3]], dtype='complex128')
 
-        return
+        # iterate over the frames and produce prediction for each frame
+        for ind, t in enumerate(data):
+            cur_tensor = t[np.newaxis, :, :, :]
+            tmp = self.forward(torch.from_numpy(cur_tensor).to(self.device))
+            hr_tensor[ind, :, ::2, :] = tmp.detach().cpu().numpy()[:, :data.shape[1]//2, :, :]+1j*tmp.detach().cpu().numpy()[:, data.shape[1]//2:tmp.shape[1]//2, :, :]
+            hr_tensor[ind, :, 1::2, :] = tmp.detach().cpu().numpy()[:, tmp.shape[1]//2:tmp.shape[1]//2+data.shape[1]//2, :, :]+\
+                                         1j*tmp.detach().cpu().numpy()[:, tmp.shape[1]//2+data.shape[1]//2:tmp.shape[1]//2+data.shape[1], :, :]
 
-
-    def eval_forward_crop(self, crop):
-        return None
-
+        return hr_tensor
 
     def save_model(self, epoch=None, scale=None, overwrite=False):
         """
