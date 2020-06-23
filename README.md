@@ -62,8 +62,9 @@ tensorboard --logdir logs_dir/
 ```
 
 ## Results
-![GitHub Logo](/images/K_space_results.png)
-Format: ![Alt Text](url)
+![Alt Text](./images/K_space_results.png)
+![Alt Text](./images/Restored_images.png)
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
