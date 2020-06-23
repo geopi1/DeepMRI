@@ -62,9 +62,9 @@ tensorboard --logdir logs_dir/
 ```
 
 ## Results
-![ScreenShot](./images/K_space_results.png)
+![K_Space](./images/K_space_results.png)
 
-![ScreenShot](./images/Restored_images.png)
+![Images](./images/Restored_images.png)
 
 ## License
 
