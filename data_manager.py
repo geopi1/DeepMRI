@@ -10,7 +10,7 @@ from tqdm import tqdm
 import pickle
 
 
-class DataHandler(data.Dataset):
+class RAKIDataHandler(data.Dataset):
     """
     This is a torch class to handle:
     subsampled data always stored as [real,imag, real,imag, ...]
@@ -25,7 +25,7 @@ class DataHandler(data.Dataset):
         self.data_path = config['data']['data_folder']
         self.data = self.load_mr_images()
         self.sub_rate = self.config['acceleration_rate']
-        self.ACS_size = 60
+        self.ACS_size = 36
         self.ACS = self.get_ACS()
         self.subsampled_data = self.create_subsmapled_data()
         print('-datahandler built-')
@@ -52,7 +52,7 @@ class DataHandler(data.Dataset):
         # iterate over the path list load and save the data
         file_list = sorted([f for f in os.listdir(self.data_path) if f.endswith('pickle')])
         data = []
-        for ind, path in enumerate([file_list[1]]):
+        for ind, path in enumerate([file_list[0]]):
             if ind == 0:
                 with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
                     data = np.squeeze(pickle.load(handle))
@@ -62,7 +62,7 @@ class DataHandler(data.Dataset):
 
                 data = np.concatenate([data, tmp_data], axis=0)
 
-        return data[:, :, :768, :]/np.std(data[:, :, :768, :])
+        return (data[:, :, :768, :])/np.std(data[:, :, :768, :])
 
     def get_ACS(self):
         ACS = list(np.arange(-self.ACS_size // 2, self.ACS_size // 2) + 308)
@@ -95,6 +95,77 @@ class DataHandler(data.Dataset):
 
         lr_crop = gt_crop[:hr_crop.shape[0], :, :]
         return gt_crop,lr_crop
+
+    def get_random_crop(self):
+        if self.work_with_crop:
+            return
+        # not working with crops, but with the full k-space ACS
+        else:
+            frame = np.random.randint(0, self.data.shape[0], 1)
+            real_part = np.real(np.squeeze(self.ACS[frame, :, :, :]))
+            imag_part = np.imag(np.squeeze(self.ACS[frame, :, :, :]))
+            crop = np.concatenate([real_part, imag_part], axis=0)
+            return crop
+
+
+class SpatialDataHandler(RAKIDataHandler):
+    """
+    This is a torch class to handle:
+    subsampled data always stored as [real,imag, real,imag, ...]
+    1. loading MR images
+    2. cropping
+    3. batching
+    """
+    def __init__(self, config):
+        super().__init__(config)
+        self.subsampled_data = self.create_subsmapled_data()
+        print('-datahandler built-')
+
+    def __len__(self):
+        return self.data.shape[0]
+
+    def __getitem__(self, item):
+        """
+        return an item
+        :param item:
+        :return:
+        """
+        hr_crop = self.get_random_crop()
+
+        lr_crop = self.subsample_crop(hr_crop)
+        return hr_crop, lr_crop
+
+    def load_mr_images(self):
+        # iterate over the path list load and save the data
+        file_list = sorted([f for f in os.listdir(self.data_path) if f.endswith('pickle')])
+        data = []
+        for ind, path in enumerate([file_list[1]]):
+            if ind == 0:
+                with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
+                    data = np.squeeze(pickle.load(handle))
+            else:
+                with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
+                    tmp_data = np.squeeze(pickle.load(handle))
+
+                data = np.concatenate([data, tmp_data], axis=0)
+
+        return (data[:, :, :768, :])/np.std(data[:, :, :768, :])
+
+    def get_ACS(self):
+        ACS = list(np.arange(-self.ACS_size // 2, self.ACS_size // 2) + 308)
+        return self.data[:, :, ACS[:], :]
+
+    def create_subsmapled_data(self):
+        real_img_data = np.concatenate([np.real(self.data), np.imag(self.data)], axis=1)
+        return real_img_data[:, :, ::self.sub_rate, :]
+
+    def subsample_crop(self, hr_crop, test=False):
+        """
+        :param hr_crop: [2*channels, height, width]
+        :return: zero-padded subsampled crop
+        """
+        lr_crop = hr_crop[:, ::self.sub_rate, :]
+        return lr_crop
 
     def get_random_crop(self):
         if self.work_with_crop:
