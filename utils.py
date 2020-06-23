@@ -2,11 +2,12 @@ import json
 import os
 import shutil
 import matplotlib.pyplot as plt
-import matplotlib.image as pltimg
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from skimage.metrics import structural_similarity as ssim
 from skimage.exposure import equalize_hist
+from skimage.metrics import structural_similarity as ssim
+
+
 # ---------------------------------------------------------------------------------------------------
 # json config functions
 # ---------------------------------------------------------------------------------------------------
@@ -56,18 +57,18 @@ def visualize_results(dataset, net, config, net_name='RAKI'):
     interpolated_k_space[:, :, 615:, :] = 0
     interpolated_k_space[:, :, ::net.R, :] = dataset.data[:, :, ::net.R, :]
     ACS = list(np.arange(-dataset.ACS_size // 2, dataset.ACS_size // 2) + 308)
-    interpolated_k_space[:, :, ACS[:], :] = dataset.data[:, :,  ACS[:], :]
+    interpolated_k_space[:, :, ACS[:], :] = dataset.data[:, :, ACS[:], :]
 
     # make images
     eval_img = 0
-    for channel in interpolated_k_space[7,:,:,:]:
-        eval_img += np.abs(np.fft.fftshift(np.fft.fft2(channel)))**2
+    for channel in interpolated_k_space[7, :, :, :]:
+        eval_img += np.abs(np.fft.fftshift(np.fft.fft2(channel))) ** 2
 
     eval_img = (eval_img - np.min(eval_img)) / (np.max(eval_img) - np.min(eval_img))
 
     orig_img = 0
-    for channel in dataset.data[7,:,:,:]:
-        orig_img += np.abs(np.fft.fftshift(np.fft.fft2(channel)))**2
+    for channel in dataset.data[7, :, :, :]:
+        orig_img += np.abs(np.fft.fftshift(np.fft.fft2(channel))) ** 2
     orig_img = (orig_img - np.min(orig_img)) / (np.max(orig_img) - np.min(orig_img))
 
     plt.figure(1)
@@ -78,10 +79,9 @@ def visualize_results(dataset, net, config, net_name='RAKI'):
 
     # subsampled data
     subsampled_kspace = dataset.data
-    for i in range(1,net.R):
+    for i in range(1, net.R):
         subsampled_kspace[:, :, i::net.R, :] = 0
-    subsampled_kspace[:, :, ACS[:], :] = interpolated_k_space[:, :,  ACS[:], :]
-
+    subsampled_kspace[:, :, ACS[:], :] = interpolated_k_space[:, :, ACS[:], :]
 
     subsampled_img = 0
     for channel in subsampled_kspace[7, :, :, :]:
@@ -99,7 +99,6 @@ def visualize_results(dataset, net, config, net_name='RAKI'):
     print('Subsampled NMSE: ', MSE_subsampled / np.mean(orig_img ** 2))
     print('Reconstruction PSNR: ', 10 * np.log10(peak_intens / MSE_eval), f'ssim: {SSIM_eval}')
     print('Reconstruction NMSE: ', MSE_eval / np.mean(orig_img ** 2))
-
 
     plt.subplot(1, 3, 2)
     plt.imshow(np.log10(np.abs(interpolated_k_space[7, 0, ::]) + 1e-10), cmap='gray')
