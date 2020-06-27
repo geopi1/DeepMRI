@@ -8,23 +8,54 @@ from skimage.exposure import equalize_hist
 from skimage.metrics import structural_similarity as ssim
 
 
+class bcolors:
+    """
+    printing helper class
+    """
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
 # ---------------------------------------------------------------------------------------------------
 # json config functions
 # ---------------------------------------------------------------------------------------------------
 def read_json_with_line_comments(cjson_path):
+    """
+    Read the config file that is used as external configuration file
+    :param cjson_path:
+    :return: config dictionary
+    """
+    # open the file
     with open(cjson_path, 'r') as R:
         valid = []
+        # real and strip comments
         for line in R.readlines():
             if line.lstrip().startswith('#') or line.lstrip().startswith('//'):
                 continue
             valid.append(line)
+    # load the clean json format
     return json.loads(' '.join(valid))
 
 
 def startup(json_path, copy_files=True):
+    """
+    Setup the results folders and complete loading parameters to config dictionary
+    :param json_path: the relative (or absolute) path to the configuration file
+    :param copy_files: flag whether to copy or not the current running files (.py and config)
+    :return: config dictionary
+    """
+
+    # read and load json
     print('-startup- reading config json {}'.format(json_path))
     config = read_json_with_line_comments(json_path)
 
+    # copy files to result folder
     if copy_files and ("working_dir" not in config or not os.path.isdir(config['trainer']['working_dir'])):
         # find available working dir
         v = 0
@@ -48,11 +79,20 @@ def startup(json_path, copy_files=True):
 
 
 def visualize_results(dataset, net, config, net_name='RAKI'):
+    """
+    Print the results
+    :param dataset: data class to load the GT, and subsampled data
+    :param net:
+    :param config:
+    :param net_name:
+    :return:
+    """
     if net_name == 'RAKI':
         subsampled_data = dataset.subsampled_data[:, :2 * dataset.data.shape[1], :, :]
     else:
         subsampled_data = dataset.subsampled_data
 
+    # fix the K-space by setting the true GT values of the actual recording
     interpolated_k_space = net.eval(subsampled_data)
     interpolated_k_space[:, :, 615:, :] = 0
     interpolated_k_space[:, :, ::net.R, :] = dataset.data[:, :, ::net.R, :]
@@ -64,13 +104,17 @@ def visualize_results(dataset, net, config, net_name='RAKI'):
     for channel in interpolated_k_space[7, :, :, :]:
         eval_img += np.abs(np.fft.fftshift(np.fft.fft2(channel))) ** 2
 
+    # bring the image range to [0 1]
     eval_img = (eval_img - np.min(eval_img)) / (np.max(eval_img) - np.min(eval_img))
 
     orig_img = 0
+
+    # print a random channel
     for channel in dataset.data[7, :, :, :]:
         orig_img += np.abs(np.fft.fftshift(np.fft.fft2(channel))) ** 2
     orig_img = (orig_img - np.min(orig_img)) / (np.max(orig_img) - np.min(orig_img))
 
+    # plot the GT of the K-space
     plt.figure(1)
     plt.subplot(1, 3, 1)
     plt.imshow(np.log10(np.abs(dataset.data[7, 0, ::]) + 1e-10), cmap='gray')
@@ -95,16 +139,30 @@ def visualize_results(dataset, net, config, net_name='RAKI'):
     SSIM_subsampled = ssim(orig_img, subsampled_img)
     SSIM_eval = ssim(orig_img, eval_img)
 
+    # print results to screen
     print('Subsampled PSNR: ', 10 * np.log10(peak_intens / MSE_subsampled), f'ssim: {SSIM_subsampled}')
     print('Subsampled NMSE: ', MSE_subsampled / np.mean(orig_img ** 2))
     print('Reconstruction PSNR: ', 10 * np.log10(peak_intens / MSE_eval), f'ssim: {SSIM_eval}')
     print('Reconstruction NMSE: ', MSE_eval / np.mean(orig_img ** 2))
 
+    # print resutls to file
+    with open(f'{config["working_dir"]}/res.txt', 'a') as f:
+        f.write(f'Subsampled:\n')
+        f.write(f'PSNR: {10 * np.log10(peak_intens / MSE_subsampled)}\n')
+        f.write(f'SSIM: {SSIM_subsampled}\n')
+        f.write(f'NMSE: {MSE_subsampled / np.mean(orig_img ** 2)}\n')
+        f.write(f'\nReconstructed:\n')
+        f.write(f'PSNR: {10 * np.log10(peak_intens / MSE_eval)}   ssim: {SSIM_eval}\n')
+        f.write(f'SSIM: {SSIM_eval}\n')
+        f.write(f'NMSE: {MSE_eval / np.mean(orig_img ** 2)}\n')
+
+    # plot interpolation results
     plt.subplot(1, 3, 2)
     plt.imshow(np.log10(np.abs(interpolated_k_space[7, 0, ::]) + 1e-10), cmap='gray')
     plt.title('Interp. Kspace')
     plt.tight_layout()
 
+    # plot subsampled
     plt.subplot(1, 3, 3)
     plt.imshow(np.log10(np.abs(subsampled_kspace[7, 0, ::]) + 1e-10), cmap='gray')
     plt.title('Subsampled K-space')

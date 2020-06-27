@@ -1,13 +1,8 @@
 import os
-import torch
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 from torch.utils import data
-import ismrmrd
-import ismrmrd.xsd
-from tqdm import tqdm
 import pickle
+from utils import bcolors
 
 
 class RAKIDataHandler(data.Dataset):
@@ -22,22 +17,35 @@ class RAKIDataHandler(data.Dataset):
         self.config = config
         self.crop_size = config['network']['crop_size']
         self.work_with_crop = config['network']['work_with_crop']
-        self.data_path = config['data']['data_folder']
+
+        # check if data dir exists
+        try:
+            assert os.path.isdir(config['data']['data_folder'])
+            self.data_path = config['data']['data_folder']
+        except AssertionError as error:
+            print(error)
+            print(bcolors.FAIL + 'ERROR:\nChosen Data folder does not exist. Please go to config file and update.')
+            exit(1)
+
         self.data = self.load_mr_images()
         self.sub_rate = self.config['acceleration_rate']
-        self.ACS_size = 36
+        self.ACS_size = 40
         self.ACS = self.get_ACS()
         self.subsampled_data = self.create_subsmapled_data()
         print('-datahandler built-')
 
     def __len__(self):
+        """
+        function required to override the built in torch methods
+        :return: the length of the dataset
+        """
         return self.data.shape[0]
 
     def __getitem__(self, item):
         """
-        return an item
-        :param item:
-        :return:
+        return a training example
+        :param item: not used, required in the signature by torch
+        :return: a training example
         """
         # here we get a crop that is concatenated in the channels dimension
         # [real, imag] - so the first half is real second is imaginary - for reconstruction
@@ -49,10 +57,14 @@ class RAKIDataHandler(data.Dataset):
         return gt_crop, lr_crop
 
     def load_mr_images(self):
+        """
+        Load the MR images from a preset pickle file
+        :return: np tensor [subject, width, height, channel]
+        """
         # iterate over the path list load and save the data
         file_list = sorted([f for f in os.listdir(self.data_path) if f.endswith('pickle')])
         data = []
-        for ind, path in enumerate([file_list[0]]):
+        for ind, path in enumerate([file_list[1]]):
             if ind == 0:
                 with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
                     data = np.squeeze(pickle.load(handle))
@@ -65,10 +77,20 @@ class RAKIDataHandler(data.Dataset):
         return (data[:, :, :768, :])/np.std(data[:, :, :768, :])
 
     def get_ACS(self):
+        """
+        Crop out the central region of the K-sapce which is fully sampled
+        :return: np tensor [subject, width, height, channel]
+        """
         ACS = list(np.arange(-self.ACS_size // 2, self.ACS_size // 2) + 308)
         return self.data[:, :, ACS[:], :]
 
     def create_subsmapled_data(self):
+        """
+        Subsample the input tensor along the Y-axis by a factor of sub_rate (in the class, read from config)
+        :return: subsampled and zero filled tensor of the same shape as the input
+        """
+
+        # concate the real and imaginary parts of the tensor along the channel dimensions
         real_img_data = np.concatenate([np.real(self.data), np.imag(self.data)], axis=1)
         sub_data = np.zeros([real_img_data.shape[0], real_img_data.shape[1]*self.sub_rate,
                              real_img_data.shape[2]//self.sub_rate, real_img_data.shape[3]], dtype=real_img_data.dtype)
@@ -82,7 +104,7 @@ class RAKIDataHandler(data.Dataset):
 
     def subsample_crop(self, hr_crop, test=False):
         """
-
+        subsample a given training crop
         :param hr_crop: [2*channels, height, width]
         :return: zero-padded subsampled crop
         """
@@ -94,9 +116,13 @@ class RAKIDataHandler(data.Dataset):
             gt_crop[start_ind:end_ind, i//self.sub_rate, :] = hr_crop[:, i, :]
 
         lr_crop = gt_crop[:hr_crop.shape[0], :, :]
-        return gt_crop,lr_crop
+        return gt_crop, lr_crop
 
     def get_random_crop(self):
+        """
+        Randomly select a crop (currently no set, we work on the full ACS in training)
+        :return: tensor of preset size
+        """
         if self.work_with_crop:
             return
         # not working with crops, but with the full k-space ACS
@@ -110,6 +136,7 @@ class RAKIDataHandler(data.Dataset):
 
 class SpatialDataHandler(RAKIDataHandler):
     """
+    ---- currently not set ------
     This is a torch class to handle:
     subsampled data always stored as [real,imag, real,imag, ...]
     1. loading MR images
@@ -139,7 +166,7 @@ class SpatialDataHandler(RAKIDataHandler):
         # iterate over the path list load and save the data
         file_list = sorted([f for f in os.listdir(self.data_path) if f.endswith('pickle')])
         data = []
-        for ind, path in enumerate([file_list[1]]):
+        for ind, path in enumerate([file_list[0]]):
             if ind == 0:
                 with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
                     data = np.squeeze(pickle.load(handle))

@@ -1,6 +1,5 @@
 import os
 import time
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -34,6 +33,7 @@ class RAKINetwork:  # The base network
         BASE version. Other modes override this function
         :return: pytorch net object
         """
+
         net = nn.Sequential(
             nn.Conv2d(in_channels=2 * self.channels_in, out_channels=128, kernel_size=[3, 5], padding=[1, 2], padding_mode='replicate'),
             nn.ReLU(),
@@ -43,13 +43,22 @@ class RAKINetwork:  # The base network
             nn.ReLU(),
             nn.Conv2d(in_channels=64, out_channels=self.R * 2 * self.channels_in, kernel_size=[3, 3], padding=[1, 1], padding_mode='replicate'),
         ).to(self.device)
+
         return net
 
     @staticmethod
     def define_loss():
+        """
+        define the loss function for the network
+        :return: loss function handle
+        """
         return torch.nn.L1Loss(reduction='sum')
 
     def define_opt(self):
+        """
+        define the network optimizer
+        :return: optimizer object
+        """
         # TODO: read the lr and momentum from config
         learning_rate = self.config['network']['optimization']['params']['lr']
         return torch.optim.Adam(self.net.parameters(), lr=learning_rate, weight_decay=0.01)
@@ -59,10 +68,16 @@ class RAKINetwork:  # The base network
         take relevant parameters for learning rate scheduler
         :return: lr_scheduler object
         """
+        # exponential decay factor
         gamma = self.config['network']['lr_sched']['params']['gamma']
+        # set decay steps
         milestones = self.config['network']['lr_sched']['params']['milestones']
+        # when to decay relative to total number of epochs
         step_size = self.config['network']['lr_sched']['params']['step_size']
+        # total number of epochs
         epochs = self.config['network']['num_epochs']
+
+        # check what kind of LR_sched was defined
         if self.config['network']['lr_sched']['name'] == 'MultiStepLR':
             return lr_scheduler.MultiStepLR(self.optimizer, milestones=milestones, gamma=gamma)
 
@@ -73,12 +88,28 @@ class RAKINetwork:  # The base network
             return lr_scheduler.StepLR(self.optimizer, step_size=epochs // 10, gamma=1 / 1.5)
 
     def forward(self, input_tensor):
+        """
+        Apply a forward pass, used for evaluation
+        :param input_tensor: MR input tensor to feed to the network
+        :return:
+        """
         return self.net(input_tensor)
 
     def calc_loss(self, output, hr_gt_torch):
+        """
+        Calculate the loss (use cuda if available)
+        :param output: network prediction
+        :param hr_gt_torch: GT
+        :return: loss value
+        """
         return self.loss_fn(output, hr_gt_torch).cuda()
 
     def train(self, data_loader_object):
+        """
+        Full training scheme. This func
+        :param data_loader_object:
+        :return:
+        """
         print('-starting training-')
         epochs = self.config['network']['num_epochs']
         for e in range(epochs):
@@ -94,12 +125,12 @@ class RAKINetwork:  # The base network
                 hr_prediction = self.forward(lr.to(self.device))
                 # loss = self.calc_loss(hr_prediction.to(self.device), hr_gt.to(self.device))
                 loss1 = torch.nn.L1Loss(reduction='sum')
-                # loss2 = torch.nn.MSELoss(reduction='sum')
+                loss2 = torch.nn.MSELoss(reduction='sum')
                 loss3 = 0.0 * (
                                torch.sum(torch.abs(hr_prediction[:, :, :, :-1] - hr_prediction[:, :, :, 1:])) +
                                torch.sum(torch.abs(hr_prediction[:, :, :-1, :] - hr_prediction[:, :, 1:, :]))
                                )
-                loss = loss1(hr_prediction.to(self.device), hr_gt.to(self.device)) + loss3
+                loss = loss1(hr_prediction.to(self.device), hr_gt.to(self.device))
                 loss.backward()
                 it += 1
             print(f'epoch:{e}, loss:{loss.item()}. Time: {(time.time() - t):.2f}, lr={self.optimizer.param_groups[0]["lr"]}')

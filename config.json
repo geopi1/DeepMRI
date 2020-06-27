@@ -1,7 +1,7 @@
 {
    "working_dir_base":"./results",
    "tag":"tag",
-   "acceleration_rate":2,
+   "acceleration_rate":8,
    "network":{
       "type":"base",
 	  "work_with_crop": false,
@@ -37,6 +37,6 @@
       }
    },
    "data":{
-      "data_folder":"/media/george/storge/DeepMRI_data/"
+      "data_folder":"I_data/"
    }
 }
