@@ -51,6 +51,10 @@ or select the appropriate python interpreter path and run:
 ```bash
 python main.py
 ```
+a specific path can be added to the command line (instead of the config file)
+```bash
+python main.py -data /path/to/data/folder
+```
 ### Logs
 Each run records the training process, saving the learing_rate (lr) and the loss.
 To view these live via tensorboard:

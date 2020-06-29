@@ -11,7 +11,6 @@ import os
 """
 Initialize base parameters
 """
-# a/george/storge/DeepMRI_data/
 parser = ArgumentParser()
 parser.add_argument('-data', '--data_path', type=str, help='path to data folder', default=None, required=False)
 args = parser.parse_args()
