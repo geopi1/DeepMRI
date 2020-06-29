@@ -25,6 +25,7 @@ class RAKIDataHandler(data.Dataset):
         except AssertionError as error:
             print(error)
             print(bcolors.FAIL + 'ERROR:\nChosen Data folder does not exist. Please go to config file and update.')
+            print(bcolors.FAIL + 'Or enter a command line path python main.py -data /path/to/data/folder')
             exit(1)
 
         self.data = self.load_mr_images()

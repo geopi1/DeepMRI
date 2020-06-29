@@ -4,11 +4,17 @@ from torch.utils import data
 import Network
 import data_manager
 import utils
+from argparse import ArgumentParser
+import os
 
 # ========================================================================= #
 """
 Initialize base parameters
 """
+# a/george/storge/DeepMRI_data/
+parser = ArgumentParser()
+parser.add_argument('-data', '--data_path', type=str, help='path to data folder', default=None, required=False)
+args = parser.parse_args()
 # path of the config file. original file is provided with the code
 json_path = r'./config.json'
 
@@ -18,6 +24,10 @@ print('Your current Device is: ', torch.cuda.get_device_name(0))
 
 # read json config file
 config = utils.startup(json_path=json_path, copy_files=True)
+
+if not os.path.isdir(config['data']['data_folder']) and not(args is None):
+    config['data']['data_folder'] = args.data_path
+
 
 # define the dataset parameters for the torch loader
 params = {'batch_size': config['network']["batch_size"],
