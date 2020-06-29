@@ -65,7 +65,7 @@ class RAKIDataHandler(data.Dataset):
         # iterate over the path list load and save the data
         file_list = sorted([f for f in os.listdir(self.data_path) if f.endswith('pickle')])
         data = []
-        for ind, path in enumerate([file_list[1]]):
+        for ind, path in enumerate([file_list[0]]):
             if ind == 0:
                 with open(f'{os.path.join(self.data_path,path)}', 'rb') as handle:
                     data = np.squeeze(pickle.load(handle))
