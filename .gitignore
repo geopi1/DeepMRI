@@ -1,2 +1,10 @@
 # Created by .ignore support plugin (hsz.mobi)
 /ismrmrd/doc_html/
+!/ismrmrd/doc_html/objects.inv
+!/ismrmrd/doc_html/search.html
+!/ismrmrd/doc_html/searchindex.js
+!/ismrmrd/doc_html/api.html
+!/ismrmrd/doc_html/py-modindex.html
+!/ismrmrd/doc_html/.buildinfo
+!/ismrmrd/doc_html/index.html
+!/ismrmrd/doc_html/genindex.html
