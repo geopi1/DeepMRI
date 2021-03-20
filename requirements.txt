@@ -38,7 +38,7 @@ interpolation-cuda==0.0.0
 interpolationch-cuda==0.0.0
 ismrmrd==1.6.6
 ismrmrd-python-tools==0.3
-Jinja2==2.11.2
+Jinja2==2.11.3
 joblib==0.14.1
 Keras==2.3.1
 Keras-Applications==1.0.8
