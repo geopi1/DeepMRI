@@ -105,5 +105,5 @@ torchvision==0.5.0
 tornado==6.0.4
 tqdm==4.42.1
 urllib3==1.26.5
-Werkzeug==1.0.0
+Werkzeug==2.2.3
 wrapt==1.12.1
